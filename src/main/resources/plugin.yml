@@ -1,0 +1,19 @@
+name: BuildYapayZeka
+main: com.buildyz.BuildYapayZeka
+version: 1.0.0
+api-version: "1.21"
+description: Sohbetten komut alan yapay zeka inşaat botu
+commands:
+  buildyapayzeka:
+    description: Botu aç veya kapat
+    usage: /BuildYapayZeka <aktif|kapat>
+    aliases: [byz]
+    permission: buildyapayzeka.use
+  bot:
+    description: Bota inşa komutu ver
+    usage: /bot <komut>
+    permission: buildyapayzeka.use
+permissions:
+  buildyapayzeka.use:
+    description: Botu kullanma yetkisi
+    default: op

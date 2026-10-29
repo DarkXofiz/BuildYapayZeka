@@ -1,0 +1,4 @@
+# Saniyede 20 tick. Yüksek değer hızlı kurar, sunucuyu yorar.
+blocks-per-tick: 2500
+# Yan yana kurulan yapılar arasındaki boşluk
+structure-gap: 14
