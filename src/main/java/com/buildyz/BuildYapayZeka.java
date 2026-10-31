@@ -2,6 +2,7 @@ package com.buildyz;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -101,7 +102,8 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
         }
         sessions.put(p.getUniqueId(), new Session(this, p));
         say(p, "Yanındayım. Chat'e ne inşa etmemi istediğini yaz. Örnek: büyük bir spawn yap. "
-                + "Numara yazarsan hazır yapıyı kurarım (1 2 3 veya 10-20). Katalog: liste. "
+                + (Provider.detect(apiKey()) == null ? "API anahtarı yok, kendi ayrıştırıcımı kullanıyorum. "
+                        : "Yazdığını " + Provider.detect(apiKey()).label + " ile anlıyorum. ")
                 + "Kapatmak için /BuildYapayZeka kapat. Aktifken chat mesajların bana gider.");
     }
 
@@ -123,7 +125,9 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
         e.setCancelled(true);
         String text = PlainTextComponentSerializer.plainText().serialize(e.message());
         Bukkit.getScheduler().runTask(this, () -> {
-            p.sendMessage(Component.text("<" + p.getName() + "> " + text));
+            String ft = Brain.fold(text).trim();
+            boolean secret = ft.startsWith("anahtar ") || ft.startsWith("key ");
+            p.sendMessage(Component.text("<" + p.getName() + "> " + (secret ? "anahtar ********" : text)));
             handle(p, text);
         });
     }
@@ -140,7 +144,112 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
 
     // ------------------------------------------------------------------ komut işleme
 
+    private void links(Player p) {
+        for (Provider pv : Provider.values()) {
+            p.sendMessage(Component.text((pv.free() ? "Ücretsiz katman: " : "Ücretli: ") + pv.label + "  ", NamedTextColor.GRAY)
+                    .append(Component.text(pv.keyUrl, NamedTextColor.AQUA).clickEvent(ClickEvent.openUrl(pv.keyUrl))));
+        }
+    }
+
+    private static String mask(String k) {
+        return k.length() > 12 ? k.substring(0, 7) + "****" + k.substring(k.length() - 4) : "****";
+    }
+
+    private String modelFor(Provider pv) {
+        return getConfig().getString("models." + pv.id, pv.defaultModel);
+    }
+
+    /** /bot anahtar, /bot durum. Oturum açık olmasa da çalışır. */
+    private boolean admin(Player p, String text) {
+        String[] parts = text.trim().split("\\s+", 2);
+        String first = Brain.fold(parts[0]);
+        if (first.equals("anahtar") || first.equals("key")) {
+            String arg = parts.length > 1 ? parts[1].trim() : "";
+            if (arg.isEmpty()) {
+                say(p, "Anahtarı aşağıdaki sitelerden alabilirsin. Sonra yaz: /bot anahtar <anahtar>. "
+                        + "Türünü kendim tanırım: sk-ant (Claude), AIza (Gemini), gsk_ (Groq), sk-or (OpenRouter). Silmek için: /bot anahtar sil");
+                links(p);
+            } else if (Brain.fold(arg).equals("sil")) {
+                getConfig().set("anthropic-api-key", "");
+                saveConfig();
+                say(p, "Anahtar silindi. Ortam değişkeni yoksa yerel ayrıştırıcıya geçtim.");
+            } else {
+                setKey(p, arg);
+            }
+            return true;
+        }
+        if (first.equals("durum") || first.equals("status")) {
+            status(p);
+            return true;
+        }
+        return false;
+    }
+
+    private void setKey(Player p, String key) {
+        final Provider pv = Provider.detect(key);
+        if (pv == null) {
+            say(p, "Anahtar türünü tanıyamadım. Desteklenen anahtarlar sk-ant, AIza, gsk_ ve sk-or ile başlar.");
+            links(p);
+            return;
+        }
+        final String m = modelFor(pv);
+        say(p, pv.label + " anahtarı kontrol ediliyor.");
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            String err = null;
+            try {
+                AiPlanner.check(pv, key, m);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String ferr = err;
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (ferr == null) {
+                    getConfig().set("anthropic-api-key", key);
+                    saveConfig();
+                    say(p, "Anahtar geçerli ve kaydedildi (" + mask(key) + "). Kullanılan yapay zeka: " + AiPlanner.describe(pv, m)
+                            + ". Güvenlik için anahtarı sohbet geçmişinden ve konsol kaydından sildirmeyi unutma.");
+                } else {
+                    say(p, "Anahtar kabul edilmedi: " + ferr + ". Kaydedilmedi.");
+                    links(p);
+                }
+            });
+        });
+    }
+
+    private void status(Player p) {
+        String key = apiKey();
+        if (key.isBlank()) {
+            say(p, "Anahtar yok. Şu an yazdıkların yerel kelime ayrıştırıcıyla anlaşılıyor, yapay zeka kullanılmıyor.");
+            links(p);
+            return;
+        }
+        final Provider pv = Provider.detect(key);
+        if (pv == null) {
+            say(p, "Kayıtlı anahtarın türü tanınmıyor (" + mask(key) + "). Yerel ayrıştırıcı kullanılıyor.");
+            links(p);
+            return;
+        }
+        final String m = modelFor(pv);
+        String cfg = getConfig().getString("anthropic-api-key", "");
+        say(p, "Anahtar var (" + mask(key) + ", kaynak: " + (cfg == null || cfg.isBlank() ? "ortam değişkeni" : "config")
+                + "). Yapay zeka: " + AiPlanner.describe(pv, m) + (pv.free() ? ", ücretsiz katman" : "") + ". Doğruluyorum.");
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            String err = null;
+            try {
+                AiPlanner.check(pv, key, m);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String ferr = err;
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (ferr == null) say(p, "Anahtar çalışıyor. Yazdıkların " + pv.label + " ile anlaşılıyor.");
+                else say(p, "Anahtar çalışmıyor: " + ferr + ". Şu an yerel ayrıştırıcıya düşüyorum.");
+            });
+        });
+    }
+
     private void handle(Player p, String text) {
+        if (admin(p, text)) return;
         Session s = sessions.get(p.getUniqueId());
         if (s == null) {
             say(p, "Önce /BuildYapayZeka aktif yaz.");
@@ -170,10 +279,55 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
             help(p);
             return;
         }
+        String key = apiKey();
+        final Provider pv = key.isBlank() ? null : Provider.detect(key);
+        if (pv == null || Brain.any(tok, "harita map schem schematic")) {
+            localPlan(p, s, text);
+            return;
+        }
+        say(p, "Düşünüyorum.");
+        final String model = modelFor(pv);
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            Brain.Plan result = null;
+            String err = null;
+            try {
+                result = AiPlanner.plan(pv, key, model, text);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final Brain.Plan fp = result;
+            final String ferr = err;
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (sessions.get(p.getUniqueId()) != s) return;
+                if (fp == null) {
+                    say(p, "Yapay zekaya ulaşamadım (" + ferr + "). Kendi ayrıştırıcımı kullanıyorum.");
+                    localPlan(p, s, text);
+                } else if (fp.items().isEmpty()) {
+                    if (fp.summary().isBlank()) help(p);
+                    else say(p, fp.summary());
+                } else {
+                    say(p, fp.summary());
+                    s.enqueue(p, fp.items());
+                }
+            });
+        });
+    }
+
+    private String apiKey() {
+        String k = getConfig().getString("anthropic-api-key", "");
+        if (k == null || k.isBlank()) k = System.getenv("ANTHROPIC_API_KEY");
+        return k == null ? "" : k.trim();
+    }
+
+    private void localPlan(Player p, Session s, String text) {
         Brain.Plan plan = Brain.parse(text, library);
         if (plan.items().isEmpty()) {
-            say(p, "Bunu anlayamadım.");
-            help(p);
+            if (plan.summary().isBlank()) {
+                say(p, "Bunu anlayamadım.");
+                help(p);
+            } else {
+                say(p, plan.summary());
+            }
             return;
         }
         say(p, plan.summary());
@@ -181,17 +335,21 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
     }
 
     private void help(Player p) {
-        say(p, "Şunları yazabilirsin: spawn, takas, kasa, arena, pvp, 1v1, sky. Boyut için büyük veya küçük. "
-                + "Tema için nether, end, kuvars, deniz, çöl, bakır, sakura, blackstone. "
-                + "Hepsi veya sunucu yazarsan tüm paketi kurarım. Numara yaz: 1 2 3 veya 100-110. "
-                + "Rastgele 5 de çalışır. Komutlar: liste, iptal, geri, kapat.");
+        say(p, "İstediğini düz yazıyla anlat. Örnek: 100x100 nether temalı spawn, 3 tane box pvp, büyük arena. "
+                + "Türler: spawn, takas ve kasa, arena, box pvp, ffa çukuru, 1v1 odaları, sky pvp. "
+                + "Hepsi veya sunucu yazarsan tüm paketi kurarım. Her seferinde farklı çıkar. "
+                + "Komutlar: durum, anahtar, liste, iptal, geri, kapat.");
     }
 
     private void list(Player p, int page) {
+        if (library.size() == 0) {
+            say(p, "maps klasöründe .schem dosyası yok. Hazır şablon yok, yapılar yazdığına göre sıfırdan üretilir.");
+            return;
+        }
         int per = 15;
         int pages = (library.size() + per - 1) / per;
         page = Math.max(1, Math.min(page, pages));
-        StringBuilder sb = new StringBuilder("Katalog sayfa " + page + "/" + pages + ". Numarayı yaz, hemen kurayım.");
+        StringBuilder sb = new StringBuilder("Harita listesi sayfa " + page + "/" + pages + ". Kurmak için: harita <numara>");
         for (int i = (page - 1) * per; i < Math.min(library.size(), page * per); i++) {
             Library.Entry e = library.all().get(i);
             sb.append("\n#").append(e.id()).append(" ").append(e.name());
@@ -204,7 +362,7 @@ public final class BuildYapayZeka extends JavaPlugin implements Listener, TabExe
         List<String> out = new ArrayList<>();
         if (a.length != 1) return out;
         String[] opts = cmd.getName().equalsIgnoreCase("bot")
-                ? new String[]{"liste", "iptal", "geri", "yardim", "spawn", "arena", "1v1", "takas", "sky", "hepsi", "rastgele"}
+                ? new String[]{"anahtar", "durum", "liste", "iptal", "geri", "yardim", "spawn", "arena", "boxpvp", "1v1", "takas", "sky", "hepsi"}
                 : new String[]{"aktif", "kapat"};
         for (String o : opts) {
             if (o.startsWith(a[0].toLowerCase())) out.add(o);

@@ -1,3 +1,21 @@
+# API anahtarı. /bot anahtar <anahtar> komutuyla oyun içinden de girilir.
+# Boş bırakırsan ANTHROPIC_API_KEY ortam değişkeni denenir (Claude anahtarı için).
+# Anahtar yoksa bot kendi kelime ayrıştırıcısıyla çalışır, tamamen ücretsizdir.
+# Bu dosyayı kimseyle paylaşma, GitHub'a yükleme.
+# Sağlayıcı anahtarın başlangıcından otomatik tanınır:
+#   sk-ant  Claude (Anthropic, ücretli)
+#   AIza    Google Gemini (ücretsiz katman)
+#   gsk_    Groq (ücretsiz katman)
+#   sk-or   OpenRouter (ücretsiz :free modeller)
+anthropic-api-key: ""
+
+# Model adları zamanla değişir. Hata alırsan buradan güncelle, /bot durum ile dene.
+models:
+  anthropic: "claude-sonnet-5-5"
+  gemini: "gemini-2.5-flash"
+  groq: "openai/gpt-oss-120b"
+  openrouter: "google/gemma-4-31b-it:free"
+
 # Saniyede 20 tick. Yüksek değer hızlı kurar, sunucuyu yorar.
 blocks-per-tick: 2500
 # Yan yana kurulan yapılar arasındaki boşluk

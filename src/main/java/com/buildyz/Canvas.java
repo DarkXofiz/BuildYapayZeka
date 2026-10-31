@@ -34,6 +34,18 @@ final class Canvas {
     int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
     private int sx, sy, sz;
     private boolean spawnSet;
+    private int rot;
+
+    /** Yapıyı 90 derece saat yönünde k kez döndürür. Hiçbir blok konmadan önce çağrılmalı. */
+    void rotate(int k) { rot = Math.floorMod(k, 4); }
+
+    private BlockFace rotFace(BlockFace f) {
+        BlockFace[] ring = {BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST};
+        for (int i = 0; i < 4; i++) {
+            if (ring[i] == f) return ring[(i + rot) % 4];
+        }
+        return f;
+    }
 
     static BlockData data(Material m) {
         return CACHE.computeIfAbsent(m, Material::createBlockData);
@@ -44,6 +56,11 @@ final class Canvas {
     }
 
     void put(int x, int y, int z, BlockData d, Consumer<Block> post) {
+        for (int i = 0; i < rot; i++) {
+            int tmp = x;
+            x = -z;
+            z = tmp;
+        }
         ops.put(key(x, y, z), new Op(x, y, z, d, post));
         if (!d.getMaterial().isAir()) {
             if (x < minX) minX = x;
@@ -79,6 +96,7 @@ final class Canvas {
     }
 
     void facing(int x, int y, int z, Material m, BlockFace f) {
+        f = rotFace(f);
         BlockData d = Bukkit.createBlockData(m);
         if (d instanceof Directional dd) dd.setFacing(f);
         put(x, y, z, d, null);
@@ -97,12 +115,14 @@ final class Canvas {
     }
 
     void wallSign(int x, int y, int z, BlockFace f, String a, String b) {
+        f = rotFace(f);
         BlockData d = Bukkit.createBlockData(Material.OAK_WALL_SIGN);
         if (d instanceof Directional dd) dd.setFacing(f);
         put(x, y, z, d, text(a, b));
     }
 
     void standSign(int x, int y, int z, BlockFace f, String a, String b) {
+        f = rotFace(f);
         BlockData d = Bukkit.createBlockData(Material.OAK_SIGN);
         if (d instanceof Rotatable r) r.setRotation(f);
         put(x, y, z, d, text(a, b));
@@ -125,6 +145,11 @@ final class Canvas {
     }
 
     void setSpawn(int x, int y, int z) {
+        for (int i = 0; i < rot; i++) {
+            int tmp = x;
+            x = -z;
+            z = tmp;
+        }
         sx = x;
         sy = y;
         sz = z;
